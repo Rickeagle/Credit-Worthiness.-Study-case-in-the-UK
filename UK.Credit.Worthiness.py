@@ -10,8 +10,7 @@ import pandas as pd
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.filterwarnings("ignore", category=pd.errors.SettingWithCopyWarning)
-
-
+warnings.filterwarnings("ignore", message=".*KMeans is known to have a memory leak on Windows with MKL.*")
 import yfinance as yf
 from arch import arch_model
 import numpy as np
@@ -29,16 +28,16 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.impute import KNNImputer
 from sklearn.inspection import permutation_importance
-
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 from yahooquery import Ticker
 import os
-
-
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 # Plotting style
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette("viridis")
 sns.set_context("talk")
-
 
 
 #%%  Uploading data
@@ -674,6 +673,61 @@ plt.savefig(os.path.join(folder_path, "ROC-SVM.png"))
 plt.show()
 
 report_svm_df.round(3)
+
+#%% APPENDIX  A
+     #TESTING IF ORIGINAL TRAIN AND TEST SAMPLES HAVE SAME DISTRIBUTION without considering the missing values!
+    url = "https://raw.githubusercontent.com/Rickeagle/Credit-Worthiness.-Study-case-in-the-UK/main/EM.csv"
+    file_path = url
+    df = load_and_preprocess_data(file_path) 
+    important_features = ['Creditscore', 'Likelihoodoffailure', 'CreditlimitGBPGBP',
+                           'ReturnonTotalAssets2019', 'Currentratiox2019', 'SolvencyratioLiabilitybased2019']
+    df2=df.dropna()
+    explore_features(df2, important_features)
+    df2, threshold2 = create_target_variable(df2, 'Creditscore', method='mean')
+    df2_numeric = df2.select_dtypes(include=[np.number])
+    print(f"\nWorking with {df2_numeric.shape[1]} numerical features")
+    X2 = df2_numeric.drop(columns=['Creditscore', 'Creditscore_Level'])
+    y2 = df2_numeric['Creditscore_Level']
+    X_train2, X_test2, y_train2, y_test2 = train_test_split(X2, y2, test_size=0.3, random_state=123, stratify=y2)
+    print(f"Training set: {X_train2.shape[0]} samples")
+    print(f"Testing set: {X_test2.shape[0]} samples")
+
+    X = np.concatenate([X_train2, X_test2], axis=0)
+    y = np.concatenate([np.zeros(len(X_train2)), np.ones(len(X_test2))])
+
+    clf2 = LogisticRegression(max_iter=1000)
+    accuracy2 = cross_val_score(clf2, X, y, cv=5, scoring='accuracy').mean()
+    print("Mean accuracy:", accuracy2)
+    print("Given that the accuracy is close to 50% we can conclude that the two samples have the same distribution!")
+    ###########################################################
+#%% Appendix B - UNSUPERVISED ML for EDA
+# Scale the full feature set (using the X defined earlier)
+scaler_full = StandardScaler()
+X_scaled = scaler_full.fit_transform(X)
+
+# Apply KMeans clustering (set n_clusters as needed, here we use 2)
+kmeans = KMeans(n_clusters=2, random_state=123)
+clusters = kmeans.fit_predict(X_scaled)
+
+# Evaluate clustering quality with Silhouette Score
+sil_score = silhouette_score(X_scaled, clusters)
+print("Silhouette Score:", sil_score)
+
+# Visualize clusters with PCA (reducing dimensions to 2 for plotting)
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)
+
+plt.figure(figsize=(6, 5))
+plt.scatter(X_pca[:, 0], X_pca[:, 1], c=clusters, cmap='viridis', alpha=0.6)
+plt.xlabel("Principal Component 1")
+plt.ylabel("Principal Component 2")
+plt.title("KMeans Clustering Visualization")
+plt.show()
+
+
+
+
+
 
 
 
